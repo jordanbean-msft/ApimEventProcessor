@@ -20,9 +20,9 @@ namespace ApimEventProcessor
         public MoesifHttpMessageProcessor(ILogger logger)
         {
             var appId = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-APP-ID", EnvironmentVariableTarget.Process);
-            var client = new MoesifApiClient(appId);
+            _MoesifClient = new MoesifApiClient(appId);
             _SessionTokenKey = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-SESSION-TOKEN", EnvironmentVariableTarget.Process);
-            _SessionTokenKey = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-API-VERSION", EnvironmentVariableTarget.Process);
+            _ApiVersion = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-API-VERSION", EnvironmentVariableTarget.Process);
             _Logger = logger;
         }
 
@@ -42,7 +42,7 @@ namespace ApimEventProcessor
                 Headers = ToHeaders(message.HttpRequestMessage.Headers),
                 ApiVersion = _ApiVersion,
                 IpAddress = null,
-                Body = System.Convert.ToBase64String(await message.HttpRequestMessage.Content.ReadAsByteArrayAsync()),
+                Body = message.HttpRequestMessage.Content != null ? System.Convert.ToBase64String(await message.HttpRequestMessage.Content.ReadAsByteArrayAsync()) : null,
                 TransferEncoding = "base64"
             };
 
@@ -52,7 +52,7 @@ namespace ApimEventProcessor
                 Status = (int) message.HttpResponseMessage.StatusCode,
                 IpAddress = Environment.MachineName,
                 Headers = ToHeaders(message.HttpResponseMessage.Headers),
-                Body = System.Convert.ToBase64String(await message.HttpResponseMessage.Content.ReadAsByteArrayAsync()),
+                Body = message.HttpResponseMessage.Content != null ? System.Convert.ToBase64String(await message.HttpResponseMessage.Content.ReadAsByteArrayAsync()) : null,
                 TransferEncoding = "base64"
             };
 
@@ -63,7 +63,7 @@ namespace ApimEventProcessor
             {
                 Request = moesifRequest,
                 Response = moesifResponse,
-                SessionToken = message.HttpRequestMessage.Headers.GetValues(_SessionTokenKey).FirstOrDefault(),
+                SessionToken = _SessionTokenKey != null ? message.HttpRequestMessage.Headers.GetValues(_SessionTokenKey).FirstOrDefault() : null,
                 Tags = null,
                 UserId = null,
                 Metadata = metadata

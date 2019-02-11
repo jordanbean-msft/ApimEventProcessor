@@ -19,40 +19,43 @@ namespace ApimEventProcessorTests
 
             // Arrange
             var httpRequestMessage = new HttpRequestMessage() {
-                RequestUri = new Uri("http://example.com/foo")
+                RequestUri = new Uri("https://api.github.com"),
+                Content = new StringContent("{'key_a': 40}")
             };
 
             var httpMessage = new HttpMessage()
             {
+                MessageId = new Guid(),
                 IsRequest = true,
                 HttpRequestMessage = httpRequestMessage
             };
 
             var consoleLogger = new ConsoleLogger();
-            var fakeMessageHandler = new FakeMessageHandler();
 
             var message = new MoesifHttpMessageProcessor(consoleLogger);
 
             // Act
             await message.ProcessHttpMessage(httpMessage);
 
-            // Assert
-            Assert.NotNull(fakeMessageHandler.LastResponseMessage);
-            Assert.Equal("api.moesif.net", fakeMessageHandler.LastResponseMessage.RequestMessage.RequestUri.Host);
-        }
-    }
-
-
-    public class FakeMessageHandler : DelegatingHandler
-    {
-        public HttpResponseMessage LastResponseMessage { get; set; }
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            LastResponseMessage = new HttpResponseMessage()
+            var httpResponseMessage = new HttpResponseMessage()
             {
-                RequestMessage = request
+                StatusCode = System.Net.HttpStatusCode.OK,
+                Content = new StringContent("{'key_b': 25}")
             };
-            return LastResponseMessage;
+
+            var responseMessage = new HttpMessage()
+            {
+                HttpRequestMessage = httpRequestMessage,
+                MessageId = httpMessage.MessageId,
+                IsRequest = false,
+                HttpResponseMessage = httpResponseMessage
+            };
+
+            await message.ProcessHttpMessage(responseMessage);
+
+            // Assert
+            Assert.NotNull(responseMessage);
+            Assert.Equal("api.github.com", responseMessage.HttpRequestMessage.RequestUri.Host);
         }
     }
 }
