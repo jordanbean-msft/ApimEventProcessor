@@ -11,7 +11,7 @@ using ApimEventProcessor;
 
 namespace ApimEventProcessorTests
 {
-    public class RunscopeHttpMessageProcessorTests
+    public class MoesifHttpMessageProcessorTests
     {
         [Fact]
         public async Task SendHttpRequest()
@@ -30,17 +30,15 @@ namespace ApimEventProcessorTests
 
             var consoleLogger = new ConsoleLogger();
             var fakeMessageHandler = new FakeMessageHandler();
-            var httpClient = new HttpClient(fakeMessageHandler);
-            httpClient.BaseAddress = new Uri("http://api.runscope.com/");
 
-            var message = new RunscopeHttpMessageProcessor(httpClient,consoleLogger);
+            var message = new MoesifHttpMessageProcessor(consoleLogger);
 
             // Act
             await message.ProcessHttpMessage(httpMessage);
 
             // Assert
             Assert.NotNull(fakeMessageHandler.LastResponseMessage);
-            Assert.Equal("api.runscope.com", fakeMessageHandler.LastResponseMessage.RequestMessage.RequestUri.Host);
+            Assert.Equal("api.moesif.net", fakeMessageHandler.LastResponseMessage.RequestMessage.RequestUri.Host);
         }
     }
 
