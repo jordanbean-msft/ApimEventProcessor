@@ -25,7 +25,7 @@ namespace ApimEventProcessor
         
         public MoesifHttpMessageProcessor(ILogger logger)
         {
-            var appId = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-APP-ID", EnvironmentVariableTarget.Process);
+            var appId = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-APPLICATION-ID", EnvironmentVariableTarget.Process);
             _MoesifClient = new MoesifApiClient(appId);
             _SessionTokenKey = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-SESSION-TOKEN", EnvironmentVariableTarget.Process);
             _ApiVersion = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-API-VERSION", EnvironmentVariableTarget.Process);
@@ -38,10 +38,12 @@ namespace ApimEventProcessor
             // So we cache both request and response and cache them. 
             // Note, response message might be processed before request
             if (message.HttpRequestMessage != null){
+                _Logger.LogDebug("Received req: " + message.MessageId);
                 message.HttpRequestMessage.Properties.Add(RequestTimeName, DateTime.UtcNow);
                 requestsCache.TryAdd(message.MessageId, message);
             }
             if (message.HttpResponseMessage != null){
+                _Logger.LogDebug("Received resp: " + message.MessageId);
                 responsesCache.TryAdd(message.MessageId, message);
             }
             await SendCompletedMessagesToMoesif();
@@ -55,11 +57,11 @@ namespace ApimEventProcessor
         {
             var completedMessages = RemoveCompletedMessages();
             _Logger.LogDebug("Sending completed Messages to Moesif. Count: " + completedMessages.Count);
-            foreach(Guid messageId in completedMessages.Keys)
+            if (completedMessages.Count > 0)
             {
-                var kv = completedMessages[messageId];
-                var moesifEvent = await BuildMoesifEvent(kv.Key, kv.Value);
-                var response = await _MoesifClient.Api.CreateEventAsync(moesifEvent);
+                var moesifEvents = await BuildMoesifEvents(completedMessages);
+                // Send async to Moesif. To send synchronously, use CreateEventsBatch instead
+                await _MoesifClient.Api.CreateEventsBatchAsync(moesifEvents);
             }
         }
 
@@ -75,6 +77,16 @@ namespace ApimEventProcessor
                 }
             }
             return messages;
+        }
+
+        public async Task<List<EventModel>> BuildMoesifEvents(Dictionary<Guid, KeyValuePair<HttpMessage, HttpMessage>> completedMessages)
+        {
+            List<EventModel> events = new List<EventModel>();
+            foreach(KeyValuePair<HttpMessage, HttpMessage> kv in completedMessages.Values)
+            {
+                events.Add(await BuildMoesifEvent(kv.Key, kv.Value));
+            }
+            return events;
         }
 
         /**
@@ -122,7 +134,6 @@ namespace ApimEventProcessor
             };
             return moesifEvent;
         }
-
 
         private static Dictionary<string, string> ToHeaders(HttpHeaders headers)
         {
