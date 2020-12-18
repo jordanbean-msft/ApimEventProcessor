@@ -15,3 +15,22 @@ In order to run this sample you will need a number Environment variables configu
 | APIMEVENTS-MOESIF-API-VERSION | API Version to tag the request with such as "v1" or "1.2.1" |
 
 The sample, as is, writes the HTTP messages to the Moesif API Analytics, however, by creating a new implementation of `IHttpMessageProcessor` it is trivial to change where the HTTP messages are relayed.
+
+### HOWTO run this app in Azure App Services
+
+
+This project can be launched in `Azure App Services` as a `Azure WebJob` app.
+First, download and modify the `azure-app-service-webjobs/run.bat` file in this repo.
+STEP A - Open the file and modify all the "Environment Variables". Save it.
+
+STEP B
+1. Log into Azure portal, and create/open an Azure Web Services console.
+2. Under Settings panel on left, click on `WebJobs`
+3. Select `+ Add` to add this job
+4. In the `Add WebJob` panel, fill out:
+  - Name: enter any name for this job
+  - File Upload: Upload the `run.bat` file that you modified in STEP A
+  - Type: "continuous"
+5. Save
+
+The job should immediately begin. View logs to see output.
