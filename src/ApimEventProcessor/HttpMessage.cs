@@ -82,11 +82,13 @@ namespace ApimEventProcessor
 
             foreach (var h in splitHeaders)
             {
-                var kv = h.Trim().Split(':');
-                if (kv[0].Trim() == "Content-Type") {
-                    response.Content.Headers.ContentType = new MediaTypeHeaderValue(kv[1].Trim());                   
-                } else {
-                    response.Headers.TryAddWithoutValidation(kv[0], kv[1].Trim());
+                if (!string.IsNullOrEmpty(h)) {
+                    var kv = h.Trim().Split(':');
+                    if (kv[0].Trim() == "Content-Type") {
+                        response.Content.Headers.ContentType = new MediaTypeHeaderValue(kv[1].Trim());                   
+                    } else {
+                        response.Headers.TryAddWithoutValidation(kv[0], kv[1].Trim());
+                    }
                 }   
             }
             return ;

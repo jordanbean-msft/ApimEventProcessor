@@ -211,8 +211,10 @@ namespace ApimEventProcessor
 
             foreach (var h in splitHeaders)
             {
-                var kv = h.Trim().Split(':');
-                headers.Add(kv[0], kv[1].Trim());   
+                if (!string.IsNullOrEmpty(h)) {
+                    var kv = h.Trim().Split(':');
+                    headers.Add(kv[0], kv[1].Trim());   
+                }
             }
             return headers;
         }
