@@ -23,7 +23,7 @@ namespace ApimEventProcessor.Helpers
                 appConfig = null;
                 if (401 <= inst.ResponseCode && inst.ResponseCode <= 403)
                 {
-                    logger.LogDebug("Unauthorized access getting application configuration. Please check your Appplication Id.");
+                    logger.LogError("Unauthorized access getting application configuration. Please check your Appplication Id.");
                 }
             }
             return appConfig;
@@ -39,7 +39,7 @@ namespace ApimEventProcessor.Helpers
             }
             catch (Exception ex)
             {
-                logger.LogDebug("Error while parsing the configuration object, setting the sample rate to default.");
+                logger.LogError("Error while parsing the configuration object, setting the sample rate to default.");
                 return (null, 100, DateTime.UtcNow);
             }
         }
@@ -58,7 +58,7 @@ namespace ApimEventProcessor.Helpers
             }
             catch (Exception ex)
             {
-                logger.LogDebug("Error while parsing application configuration");
+                logger.LogError("Error while parsing application configuration");
             }
             return (config, configETag, samplingPercentage, lastUpdatedTime);
         }

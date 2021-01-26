@@ -65,7 +65,7 @@ namespace ApimEventProcessor
                     }
                 }).Start();
             } catch (Exception ex) {
-                _Logger.LogDebug("Error while parsing application configuration on initialization - " + ex.ToString());
+                _Logger.LogError("Error while parsing application configuration on initialization - " + ex.ToString());
             }
         }
 
@@ -143,7 +143,7 @@ namespace ApimEventProcessor
                         _Logger.LogDebug("Skipped Event due to sampling percentage: " + samplingPercentage.ToString() + " and random percentage: " + randomPercentage.ToString());
                     }
                 } catch (Exception ex) {
-                    _Logger.LogDebug("Error adding event to the batch - " + ex.ToString());
+                    _Logger.LogError("Error adding event to the batch - " + ex.ToString());
                 }
             }
             return events;
