@@ -14,14 +14,15 @@
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>AnyCPU</PlatformTarget> <!--<PlatformTarget>x64</PlatformTarget> -->
     <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
+    <DebugType>portable</DebugType> <!-- <DebugType>portable</DebugType> -->
     <Optimize>false</Optimize>
     <OutputPath>bin\Debug\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -31,6 +32,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Hapikit.net, Version=0.8.0.30830, Culture=neutral, processorArchitecture=MSIL">
@@ -124,6 +126,8 @@
     <Compile Include="MoesifHttpMessageProcessor.cs" />
     <Compile Include="EnumeratorExtensions.cs" />
     <Compile Include="Helpers\AppConfig.cs" />
+    <Compile Include="Helpers\RequestResponseParseUtils.cs" />
+    <Compile Include="Helpers\ParamConfig.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

@@ -3,10 +3,10 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using ApimEventProcessor.Helpers;
 
 namespace ApimEventProcessor
 {
@@ -78,18 +78,24 @@ namespace ApimEventProcessor
 
         private static void TransformResponseHeaders(HttpResponseMessage response, string headerString) 
         {
-            string[] splitHeaders = headerString.Split(new string[] { ";;" }, StringSplitOptions.None);
-
-            foreach (var h in splitHeaders)
+            Dictionary<string, string> headers = HeadersUtils.deSerializeHeaders(headerString);
+            foreach (var h in headers)
             {
-                if (!string.IsNullOrEmpty(h)) {
-                    var kv = h.Trim().Split(':');
-                    if (kv[0].Trim() == "Content-Type") {
-                        response.Content.Headers.ContentType = new MediaTypeHeaderValue(kv[1].Trim());                   
-                    } else {
-                        response.Headers.TryAddWithoutValidation(kv[0], kv[1].Trim());
+                string n = h.Key.Trim();
+                string v = h.Value.Trim();
+                if(HeadersUtils.isContentTypeHeader(n))
+                {
+                    try {
+                        response.Content.Headers.ContentType = new MediaTypeHeaderValue(v);
                     }
-                }   
+                    catch (Exception){
+                        // Some content headers throw exception eg
+                        //The format of value 'text/plain; charset=utf-8' is invalid.
+                        response.Headers.TryAddWithoutValidation(n, v);
+                    }
+                }
+                else
+                    response.Headers.TryAddWithoutValidation(n, v);
             }
             return ;
         }

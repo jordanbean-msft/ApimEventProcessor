@@ -23,8 +23,10 @@ namespace ApimEventProcessor.Helpers
                 appConfig = null;
                 if (401 <= inst.ResponseCode && inst.ResponseCode <= 403)
                 {
-                    logger.LogError("Unauthorized access getting application configuration. Please check your Appplication Id.");
+                    logger.LogError("Unauthorized access getting application configuration. Check Moesif Appplication Id. [" + inst.ResponseCode + "] " + inst.Message);
                 }
+                else
+                    logger.LogError("Moesif Api Exception getting application configuration: " + inst.ResponseCode);
             }
             return appConfig;
         }
@@ -39,7 +41,7 @@ namespace ApimEventProcessor.Helpers
             }
             catch (Exception ex)
             {
-                logger.LogError("Error while parsing the configuration object, setting the sample rate to default.");
+                logger.LogError("Error while parsing the configuration, setting the sample rate to default. " + ex.Message);
                 return (null, 100, DateTime.UtcNow);
             }
         }
@@ -58,7 +60,7 @@ namespace ApimEventProcessor.Helpers
             }
             catch (Exception ex)
             {
-                logger.LogError("Error while parsing application configuration");
+                logger.LogError("Error while parsing application configuration " + ex.Message);
             }
             return (config, configETag, samplingPercentage, lastUpdatedTime);
         }
@@ -87,12 +89,12 @@ namespace ApimEventProcessor.Helpers
                 ? ApiHelper.JsonDeserialize<Dictionary<string, object>>(companyDefaultRate.ToString())
                 : null;
 
-            if (userSampleRate != null && !string.IsNullOrEmpty(userId) && userSampleRate.Count > 0 && userSampleRate.ContainsKey(userId))
+            if (userSampleRate != null && !string.IsNullOrWhiteSpace(userId) && userSampleRate.Count > 0 && userSampleRate.ContainsKey(userId))
             {
                 return Int32.Parse(userSampleRate[userId].ToString());
             }
 
-            if (companySampleRate != null && !string.IsNullOrEmpty(companyId) && companySampleRate.Count > 0 && companySampleRate.ContainsKey(companyId))
+            if (companySampleRate != null && !string.IsNullOrWhiteSpace(companyId) && companySampleRate.Count > 0 && companySampleRate.ContainsKey(companyId))
             {
                 return Int32.Parse(companySampleRate[companyId].ToString());
             }

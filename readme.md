@@ -35,3 +35,7 @@ First, download and modify the `azure-app-service-webjobs/run.bat` file in this 
 6. Save
 
 The job should immediately begin. View logs to see output.
+
+Troubleshooting:
+1. The maximum size of data sent to log-to-eventhub is limited by azure to approx 200000 chars. So the body size in policy.xml must be limited to below that limit. Log-to-Eventhub truncates at that limit.
+3. The Checkpoint to azure storage occurs only after CHECKPOINT_MINIMUM_INTERVAL_MINUTES (5 mins) has elapsed and after new event is received. If this program is restarted prior to checkpoint, all events after last checkpoint are sent to Moesif. This may lead to duplicate events in Moesif.
