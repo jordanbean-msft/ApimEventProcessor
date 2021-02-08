@@ -1,48 +1,56 @@
 ﻿using System;
+using ApimEventProcessor.Helpers;
 using Microsoft.ServiceBus.Messaging;
-using System.Net.Http;
 
 namespace ApimEventProcessor
 {
+/*
+    The purpose of this Application is to read request/response events from Eventhub
+    and send them to Moesif.com for API Analytics
+    The events from Azure Api Management are sent to Eventhub using Log-to-Eventhub policy
+    This app uses Azure Storage to save checkpoints of Eventhub events consumption.
+*/
     class Program
     {
         static void Main(string[] args)
         {
-            
-            string eventHubConnectionString = Environment.GetEnvironmentVariable("APIMEVENTS-EVENTHUB-CONNECTIONSTRING", EnvironmentVariableTarget.Process); 
-            string eventHubName = Environment.GetEnvironmentVariable("APIMEVENTS-EVENTHUB-NAME", EnvironmentVariableTarget.Process); 
-            string storageAccountName = Environment.GetEnvironmentVariable("APIMEVENTS-STORAGEACCOUNT-NAME", EnvironmentVariableTarget.Process); 
-            string storageAccountKey = Environment.GetEnvironmentVariable("APIMEVENTS-STORAGEACCOUNT-KEY", EnvironmentVariableTarget.Process);
-
-            string storageConnectionString = string.Format("DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1}",
-                storageAccountName, storageAccountKey);
-
+            var logger = new ConsoleLogger(LogLevel.Debug);
+            logger.LogInfo("STARTING Moesif API Management Event Processor. Reading environment variables");
+            // Load configuration paramaters from Environment
+            string eventHubConnectionString = ParamConfig.loadNonEmpty(AzureAppParamNames.EVENTHUB_CONN_STRING);
+            string eventHubName = ParamConfig.loadNonEmpty(AzureAppParamNames.EVENTHUB_NAME); 
+            string storageAccountName = ParamConfig.loadNonEmpty(AzureAppParamNames.STORAGEACCOUNT_NAME); 
+            string storageAccountKey = ParamConfig.loadNonEmpty(AzureAppParamNames.STORAGEACCOUNT_KEY);
+            // This App utilizes the "$Default" Eventhub consumer group
+            // In future, we should make this configurable via environment variables
+            string eventHubConsumerGroupName = EventHubConsumerGroup.DefaultGroupName;
+            // Create connection string for azure storage account to store checkpoints
+            string storageConnectionString = makeStorageAccountConnString(storageAccountName,
+                                                                            storageAccountKey);
             string eventProcessorHostName = Guid.NewGuid().ToString();
             var eventProcessorHost = new EventProcessorHost(
                                                 eventProcessorHostName,
                                                 eventHubName,
-                                                EventHubConsumerGroup.DefaultGroupName,
+                                                eventHubConsumerGroupName,
                                                 eventHubConnectionString,
                                                 storageConnectionString);
-
-
-            var logger = new ConsoleLogger(LogLevel.Debug);
             logger.LogDebug("Registering EventProcessor...");
-
             var httpMessageProcessor = new MoesifHttpMessageProcessor(logger);
-
             eventProcessorHost.RegisterEventProcessorFactoryAsync(
                 new ApimHttpEventProcessorFactory(httpMessageProcessor, logger));
             
-            Console.WriteLine("Receiving. Press enter key to stop worker.");
+            logger.LogInfo("Process is running. Press enter key to end...");
             Console.ReadLine();
+            logger.LogInfo("STOPPING Moesif API Management Event Processor");
             eventProcessorHost.UnregisterEventProcessorAsync().Wait();
         }
 
-      
-        
+        // Build Azure Storage Account Connection String
+        public static string makeStorageAccountConnString(string storageAccountName,
+                                                            string storageAccountKey)
+        {
+            return string.Format("DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1}",
+                storageAccountName, storageAccountKey);
+        }   
     }
-
- 
-
 }

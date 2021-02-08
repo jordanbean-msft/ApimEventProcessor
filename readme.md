@@ -15,3 +15,27 @@ In order to run this sample you will need a number Environment variables configu
 | APIMEVENTS-MOESIF-API-VERSION | API Version to tag the request with such as "v1" or "1.2.1" |
 
 The sample, as is, writes the HTTP messages to the Moesif API Analytics, however, by creating a new implementation of `IHttpMessageProcessor` it is trivial to change where the HTTP messages are relayed.
+
+### How to use this app in Azure App Services
+
+
+This project can be launched in `Azure App Services` as a `Azure WebJob` app.
+First, download and modify the `azure-app-service-webjobs/run.bat` file in this repo.
+
+1. Log into Azure portal, and create/open an Azure Web Services console.
+    Tested under Stack: `.NET` `.NET 5 (Early Access)` using pricing tier `f1 - free - dev / test workloads`
+2. Under Settings / Configuration, add the above specified Environment variables as 
+   `Application settings` > "name" "value"
+3. Under Settings panel on left, click on `WebJobs`
+4. Select `+ Add` to add this job
+5. In the `Add WebJob` panel, fill out:
+  - Name: enter any name for this job
+  - File Upload: Upload the `run.bat` file (`azure-app-service-webjobs/run.bat`)
+  - Type: "continuous"
+6. Save
+
+The job should immediately begin. View logs to see output.
+
+Troubleshooting:
+1. The maximum size of data sent to log-to-eventhub is limited by azure to approx 200000 chars. So the body size in policy.xml must be limited to below that limit. Log-to-Eventhub truncates at that limit.
+3. The Checkpoint to azure storage occurs only after CHECKPOINT_MINIMUM_INTERVAL_MINUTES (5 mins) has elapsed and after new event is received. If this program is restarted prior to checkpoint, all events after last checkpoint are sent to Moesif. This may lead to duplicate events in Moesif.

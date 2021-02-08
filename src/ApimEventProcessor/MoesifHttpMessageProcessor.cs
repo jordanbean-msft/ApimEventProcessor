@@ -2,12 +2,12 @@ using Moesif.Api;
 using Moesif.Api.Models;
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using System.Linq;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
+using ApimEventProcessor.Helpers;
+using System.Threading;
 
 
 namespace ApimEventProcessor
@@ -15,21 +15,56 @@ namespace ApimEventProcessor
     public class MoesifHttpMessageProcessor : IHttpMessageProcessor
     {
         private readonly string RequestTimeName = "MoRequestTime";
+        private readonly string ReqHeadersName = "ReqHeaders";
+        private readonly string UserIdName = "UserId";
+        private readonly string CompanyIdName = "CompanyId";
+        private readonly string MetadataName = "Metadata";
         private MoesifApiClient _MoesifClient;
         private ILogger _Logger;
         private string _SessionTokenKey;
         private string _ApiVersion;
+        // Initialize config dictionary
+        private AppConfig appConfig = new AppConfig();
+        // Initialized config response
+        private Moesif.Api.Http.Response.HttpStringResponse config;
+        // App Config samplingPercentage
+        private int samplingPercentage;
+        // App Config configETag
+        private string configETag;
+        // App Config lastUpdatedTime
+        private DateTime lastUpdatedTime;
+        private DateTime lastWorkerRun = DateTime.MinValue;
         ConcurrentDictionary<Guid, HttpMessage> requestsCache = new ConcurrentDictionary<Guid, HttpMessage>();
         ConcurrentDictionary<Guid, HttpMessage> responsesCache = new ConcurrentDictionary<Guid, HttpMessage>();
         private readonly object qLock = new object();
         
         public MoesifHttpMessageProcessor(ILogger logger)
         {
-            var appId = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-APPLICATION-ID", EnvironmentVariableTarget.Process);
+            var appId = ParamConfig.loadNonEmpty(MoesifAppParamNames.APP_ID);
             _MoesifClient = new MoesifApiClient(appId);
-            _SessionTokenKey = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-SESSION-TOKEN", EnvironmentVariableTarget.Process);
-            _ApiVersion = Environment.GetEnvironmentVariable("APIMEVENTS-MOESIF-API-VERSION", EnvironmentVariableTarget.Process);
+            _SessionTokenKey = ParamConfig.loadDefaultEmpty(MoesifAppParamNames.SESSION_TOKEN);
+            _ApiVersion = ParamConfig.loadDefaultEmpty(MoesifAppParamNames.API_VERSION);
             _Logger = logger;
+            ScheduleWorkerToFetchConfig();
+        }
+
+        private void ScheduleWorkerToFetchConfig()
+        {
+            try {
+                new Thread(async () =>
+                {
+                    Thread.CurrentThread.IsBackground = true;
+                    lastWorkerRun = DateTime.UtcNow;
+                    // Get Application config
+                    config = await appConfig.getConfig(_MoesifClient, _Logger);
+                    if (!string.IsNullOrWhiteSpace(config.ToString()))
+                    {
+                        (configETag, samplingPercentage, lastUpdatedTime) = appConfig.parseConfiguration(config, _Logger);
+                    }
+                }).Start();
+            } catch (Exception ex) {
+                _Logger.LogError("Error while parsing application configuration on initialization - " + ex.ToString());
+            }
         }
 
         public async Task ProcessHttpMessage(HttpMessage message)
@@ -37,16 +72,22 @@ namespace ApimEventProcessor
             // message will probably contain either HttpRequestMessage or HttpResponseMessage
             // So we cache both request and response and cache them. 
             // Note, response message might be processed before request
-            if (message.HttpRequestMessage != null){
-                _Logger.LogDebug("Received req: " + message.MessageId);
-                message.HttpRequestMessage.Properties.Add(RequestTimeName, DateTime.UtcNow);
-                requestsCache.TryAdd(message.MessageId, message);
+            try {
+                if (message.HttpRequestMessage != null){
+                    _Logger.LogDebug("Received [request] with messageId: [" + message.MessageId + "]");
+                    message.HttpRequestMessage.Properties.Add(RequestTimeName, DateTime.UtcNow);
+                    requestsCache.TryAdd(message.MessageId, message);
+                }
+                if (message.HttpResponseMessage != null){
+                    _Logger.LogDebug("Received [response] with messageId: [" + message.MessageId + "]");
+                    responsesCache.TryAdd(message.MessageId, message);
+                }
+                await SendCompletedMessagesToMoesif();
             }
-            if (message.HttpResponseMessage != null){
-                _Logger.LogDebug("Received resp: " + message.MessageId);
-                responsesCache.TryAdd(message.MessageId, message);
+            catch (Exception ex) {
+                 _Logger.LogError("Error Processing and sending message to Moesif:  " + ex.Message);
+                 throw ex;
             }
-            await SendCompletedMessagesToMoesif();
         }
 
         /*
@@ -56,9 +97,9 @@ namespace ApimEventProcessor
         public async Task SendCompletedMessagesToMoesif()
         {
             var completedMessages = RemoveCompletedMessages();
-            _Logger.LogDebug("Sending completed Messages to Moesif. Count: " + completedMessages.Count);
             if (completedMessages.Count > 0)
             {
+                _Logger.LogDebug("Sending completed Messages to Moesif. Count: [" + completedMessages.Count + "]");
                 var moesifEvents = await BuildMoesifEvents(completedMessages);
                 // Send async to Moesif. To send synchronously, use CreateEventsBatch instead
                 await _MoesifClient.Api.CreateEventsBatchAsync(moesifEvents);
@@ -84,9 +125,48 @@ namespace ApimEventProcessor
             List<EventModel> events = new List<EventModel>();
             foreach(KeyValuePair<HttpMessage, HttpMessage> kv in completedMessages.Values)
             {
-                events.Add(await BuildMoesifEvent(kv.Key, kv.Value));
+                var moesifEvent = await BuildMoesifEvent(kv.Key, kv.Value);
+                try {
+                    // Get Sampling percentage
+                    samplingPercentage = appConfig.getSamplingPercentage(config,
+                                                                        moesifEvent.UserId,
+                                                                        moesifEvent.CompanyId);
+                    double randomPercentage;
+                    if (isSelectedRandomly(samplingPercentage, out randomPercentage))
+                    {
+                        moesifEvent.Weight = appConfig.calculateWeight(samplingPercentage);
+                        // Add event to the batch
+                        events.Add(moesifEvent);
+                        runConfigFreshnessCheck();
+                    }
+                    else
+                    {
+                        _Logger.LogDebug("Skipped Event due to sampling percentage: ["
+                                            + samplingPercentage.ToString() 
+                                            + "] and random percentage: [" 
+                                            + randomPercentage.ToString()
+                                            + "]");
+                    }
+                } catch (Exception ex) {
+                    _Logger.LogError("Error adding event to the batch - " + ex.ToString());
+                }
             }
             return events;
+        }
+
+        public void runConfigFreshnessCheck()
+        {
+            if (lastWorkerRun.AddMinutes(RunParams.CONFIG_FETCH_INTERVAL_MINUTES) < DateTime.UtcNow)
+            {
+                _Logger.LogDebug("Scheduling worker thread. lastWorkerRun=" + lastWorkerRun.ToString("o"));
+                ScheduleWorkerToFetchConfig();
+            }
+        }
+
+        public static bool isSelectedRandomly(int samplingPercentage, out double randomPercentage)
+        {
+            randomPercentage = new Random().NextDouble() * 100;
+            return samplingPercentage >= randomPercentage;
         }
 
         /**
@@ -94,55 +174,122 @@ namespace ApimEventProcessor
         */
         public async Task<EventModel> BuildMoesifEvent(HttpMessage request, HttpMessage response){
             _Logger.LogDebug("Building Moesif event");
-            EventRequestModel moesifRequest = new EventRequestModel()
-            {
-                Time = (DateTime) request.HttpRequestMessage.Properties[RequestTimeName],
-                Uri = request.HttpRequestMessage.RequestUri.OriginalString,
-                Verb = request.HttpRequestMessage.Method.ToString(),
-                Headers = ToHeaders(request.HttpRequestMessage.Headers),
-                ApiVersion = _ApiVersion,
-                IpAddress = null,
-                Body = request.HttpRequestMessage.Content != null ? System.Convert.ToBase64String(await request.HttpRequestMessage.Content.ReadAsByteArrayAsync()) : null,
-                TransferEncoding = "base64"
-            };
-
-            EventResponseModel moesifResponse = new EventResponseModel()
-            {
-                Time = DateTime.UtcNow,
-                Status = (int) response.HttpResponseMessage.StatusCode,
-                IpAddress = Environment.MachineName,
-                Headers = ToHeaders(response.HttpResponseMessage.Headers),
-                Body = response.HttpResponseMessage.Content != null ? System.Convert.ToBase64String(await response.HttpResponseMessage.Content.ReadAsByteArrayAsync()) : null,
-                TransferEncoding = "base64"
-            };
-
-            Dictionary<string, string> metadata = new Dictionary<string, string>();
-            metadata.Add("ApimMessageId", request.MessageId.ToString());
-
-            String skey = null;
-            if((_SessionTokenKey != null) && (request.HttpRequestMessage.Headers.Contains(_SessionTokenKey)) )
-                skey = request.HttpRequestMessage.Headers.GetValues(_SessionTokenKey).FirstOrDefault();
-            
+            EventRequestModel moesifRequest = await genEventRequestModel(request,
+                                                                        ReqHeadersName,
+                                                                        RequestTimeName,
+                                                                        _ApiVersion);
+            EventResponseModel moesifResponse = await genEventResponseModel(response);
+            Dictionary<string, object> metadata = genMetadata(request, MetadataName);
+            string skey = safeGetHeaderFirstOrDefault(request, _SessionTokenKey);
+            string userId = safeGetOrNull(request, UserIdName);
+            string companyId = safeGetOrNull(request, CompanyIdName);
             EventModel moesifEvent = new EventModel()
             {
                 Request = moesifRequest,
                 Response = moesifResponse,
                 SessionToken = skey,
                 Tags = null,
-                UserId = null,
-                Metadata = metadata
+                UserId = userId,
+                CompanyId = companyId,
+                Metadata = metadata,
+                Direction = "Incoming"
             };
             return moesifEvent;
         }
 
-        private static Dictionary<string, string> ToHeaders(HttpHeaders headers)
+        public async static Task<EventRequestModel> genEventRequestModel(HttpMessage request,
+                                                                        string ReqHeadersName,
+                                                                        string RequestTimeName,
+                                                                        string _ApiVersion)
         {
-            IEnumerable<KeyValuePair<string, IEnumerable<string>>> enumerable = headers.GetEnumerator().ToEnumerable();
+            var h = request.HttpRequestMessage;
+            var reqBody = h.Content != null 
+                            ? await h.Content.ReadAsStringAsync() 
+                            : null;
+            var reqHeaders = HeadersUtils.deSerializeHeaders(h.Properties[ReqHeadersName]);
+            var reqBodyWrapper = BodyUtil.Serialize(reqBody);
+            EventRequestModel moesifRequest = new EventRequestModel()
+            {
+                Time = (DateTime) h.Properties[RequestTimeName],
+                Uri = h.RequestUri.OriginalString,
+                Verb = h.Method.ToString(),
+                Headers = reqHeaders,
+                ApiVersion = _ApiVersion,
+                IpAddress = null,
+                Body = reqBodyWrapper.Item1,
+                TransferEncoding = reqBodyWrapper.Item2
+            };
+            return moesifRequest;
+        }
+
+        public async static Task<EventResponseModel> genEventResponseModel(HttpMessage response)
+        {
+            var h = response.HttpResponseMessage;
+            var respBody = h.Content != null 
+                                ? await h.Content.ReadAsStringAsync() 
+                                : null;
+            var respHeaders = ToResponseHeaders(h.Headers,
+                                                h.Content.Headers);
+            var respBodyWrapper = BodyUtil.Serialize(respBody);
+            EventResponseModel moesifResponse = new EventResponseModel()
+            {
+                Time = DateTime.UtcNow,
+                Status = (int) h.StatusCode,
+                IpAddress = Environment.MachineName,
+                Headers = respHeaders,
+                Body = respBodyWrapper.Item1,
+                TransferEncoding = respBodyWrapper.Item2
+            };
+            return moesifResponse;
+        }
+
+        private static string safeGetHeaderFirstOrDefault(HttpMessage request,
+                                                        string headerKey)
+        {
+            var h = request.HttpRequestMessage.Headers;
+            String val = null;
+            if(!string.IsNullOrWhiteSpace(headerKey)
+                    && h.Contains(headerKey))
+                val = h.GetValues(headerKey).FirstOrDefault();
+            return val;
+        }
+
+        private static string safeGetOrNull(HttpMessage request,
+                                            string propertyName)
+        {
+            var p = request.HttpRequestMessage.Properties;
+            return p[propertyName] != null
+                    ? (string) p[propertyName] 
+                    : null;
+        }
+
+        private static Dictionary<string, object> genMetadata(HttpMessage request, string MetadataName)
+        {
+            Dictionary<string, object> metadata = new Dictionary<string, object>();
+            var p = request.HttpRequestMessage.Properties;
+            if (p[MetadataName] != null)
+                metadata = (Dictionary<string, object>) p[MetadataName];
+            metadata.Add("ApimMessageId", request.MessageId.ToString());
+            return metadata;
+        }
+
+        private static Dictionary<string, string> ToResponseHeaders(HttpHeaders headers, HttpContentHeaders contentHeaders)
+        {
+            Dictionary<string, string> responseHeaders = headerToDict(headers);
+            Dictionary<string, string> responseContentHeaders = headerToDict(contentHeaders);
+            return responseHeaders.Concat(responseContentHeaders.Where( x=> !responseHeaders.Keys.Contains(x.Key)))
+                                    .ToDictionary(k => k.Key, v => v.Value);
+        }
+
+        private static Dictionary<string, string> headerToDict(
+            IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers)
+        {
+            IEnumerable<KeyValuePair<string, IEnumerable<string>>> enumerable = headers.GetEnumerator()
+                                                                                        .ToEnumerable();
             return enumerable.ToDictionary(p => p.Key, p => p.Value.GetEnumerator()
-                                                             .ToEnumerable()
-                                                             .ToList()
-                                                             .Aggregate((i, j) => i + ", " + j));
+                            .ToEnumerable()
+                            .ToList()
+                            .Aggregate((i, j) => i + ", " + j));
         }
     }
 }
-
